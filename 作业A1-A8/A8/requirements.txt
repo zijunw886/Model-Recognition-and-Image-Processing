@@ -1,0 +1,11 @@
+# Computer Vision Assignment A8 Requirements
+streamlit>=1.25.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+torch>=2.0.0
+torchvision>=0.15.0
+diffusers>=0.20.0
+transformers>=4.30.0
+accelerate>=0.20.0
+safetensors>=0.3.0
+Pillow>=9.5.0
