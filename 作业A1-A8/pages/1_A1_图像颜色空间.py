@@ -5,7 +5,8 @@ Color Space Conversion and Image Interpolation
 
 import streamlit as st
 import numpy as np
-import cv2
+from PIL import Image
+import numpy as np
 from PIL import Image
 import os
 
