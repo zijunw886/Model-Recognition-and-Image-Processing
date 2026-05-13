@@ -98,24 +98,35 @@ def canny_edge_detection(image):
     c1.image(gray, caption="原图")
     c2.image(edges, caption="Canny边缘")
 
-# ==================== Feature Detection ====================
-def harris_corner(gray, k=0.04):
+# ==================== 修复后的特征点检测 ====================
+def harris_corner_response(gray, k=0.04):
+    """计算Harris角点响应值"""
     h, w = gray.shape
-    dx = np.array([[-1,0,1],[-1,0,1],[-1,0,1]])
-    dy = np.array([[-1,-1,-1],[0,0,0],[1,1,1]])
-    Ix = np.zeros_like(gray, np.float32)
-    Iy = np.zeros_like(gray, np.float32)
+    # Sobel算子
+    dx = np.array([[-1,0,1],[-1,0,1],[-1,0,1]], dtype=np.float32)
+    dy = np.array([[-1,-1,-1],[0,0,0],[1,1,1]], dtype=np.float32)
+    
+    # 计算梯度
+    Ix = np.zeros_like(gray, dtype=np.float32)
+    Iy = np.zeros_like(gray, dtype=np.float32)
+    gray_float = gray.astype(np.float32)
     
     for i in range(1, h-1):
         for j in range(1, w-1):
-            Ix[i,j] = np.sum(dx * gray[i-1:i+2, j-1:j+2])
-            Iy[i,j] = np.sum(dy * gray[i-1:i+2, j-1:j+2])
+            Ix[i,j] = np.sum(dx * gray_float[i-1:i+2, j-1:j+2])
+            Iy[i,j] = np.sum(dy * gray_float[i-1:i+2, j-1:j+2])
     
+    # 计算协方差矩阵元素
     Ixx = Ix**2
     Iyy = Iy**2
-    Ixy = Ix*Iy
-    r = Ixx*Iyy - Ixy**2 - k*(Ixx+Iyy)**2
-    return r
+    Ixy = Ix * Iy
+    
+    # Harris响应公式
+    det = Ixx * Iyy - Ixy**2
+    trace = Ixx + Iyy
+    response = det - k * (trace**2)
+    
+    return response
 
 def feature_detection(image):
     st.header("特征点检测")
@@ -123,21 +134,56 @@ def feature_detection(image):
     gray = np.mean(image, axis=2).astype(np.uint8)
     rgb = image.copy()
     
+    # 1. Harris角点检测（修复版）
     st.subheader("Harris角点检测")
     k = st.slider("参数k", 0.01, 0.1, 0.04)
-    if st.button("检测Harris角点"):
-        r = harris_corner(gray, k)
-        res = rgb.copy()
-        res[r > 0.01*r.max()] = [255,0,0]
-        st.image(res, caption="Harris角点（红色）")
+    threshold = st.slider("角点阈值", 0.001, 0.01, 0.005, 0.001)
     
-    st.subheader("简易特征点检测")
-    if st.button("检测特征点"):
-        pts = np.where(gray > 128)
-        res = rgb.copy()
-        if len(pts[0])>0:
-            res[pts[0][:100], pts[1][:100]] = [0,255,0]
-        st.image(res, caption="特征点")
+    if st.button("检测Harris角点", key="harris_btn"):
+        with st.spinner("计算中..."):
+            # 计算响应值
+            r = harris_corner_response(gray, k)
+            r = (r - r.min()) / (r.max() - r.min() + 1e-6)  # 归一化到0-1
+            
+            # 标记角点（用圆点标记，更明显）
+            harris_img = rgb.copy()
+            corners = np.where(r > threshold)
+            # 取前200个角点，避免太多点
+            if len(corners[0]) > 200:
+                idx = np.argsort(r[corners])[-200:]
+                corners = (corners[0][idx], corners[1][idx])
+            
+            # 用红色圆点标记角点
+            for y, x in zip(*corners):
+                # 画一个3x3的红点
+                harris_img[max(0,y-1):y+2, max(0,x-1):x+2] = [255, 0, 0]
+            
+            # 显示响应图和结果
+            col1, col2 = st.columns(2)
+            col1.image(r, caption="角点响应图", use_container_width=True, cmap="gray")
+            col2.image(harris_img, caption=f"检测到{len(corners[0])}个角点（红色标记）", use_container_width=True)
+    
+    # 2. 简易特征点检测（修复版，基于边缘）
+    st.subheader("基于边缘的特征点检测")
+    if st.button("检测特征点", key="feature_btn"):
+        with st.spinner("计算中..."):
+            # 用Canny边缘的点作为特征点
+            blur = np.array(Image.fromarray(gray).filter(ImageFilter.GaussianBlur(1)))
+            edges = np.zeros_like(gray)
+            edges[blur > 100] = 255  # 简化边缘检测
+            
+            # 取边缘的点，最多取200个
+            pts = np.where(edges == 255)
+            if len(pts[0]) > 200:
+                idx = np.random.choice(len(pts[0]), 200, replace=False)
+                pts = (pts[0][idx], pts[1][idx])
+            
+            # 用绿色圆点标记特征点
+            feature_img = rgb.copy()
+            for y, x in zip(*pts):
+                feature_img[max(0,y-1):y+2, max(0,x-1):x+2] = [0, 255, 0]
+            
+            st.image(feature_img, caption=f"检测到{len(pts[0])}个特征点（绿色标记）", use_container_width=True)
 
 # ==================== Image Matching ====================
 def image_matching(image):
