@@ -104,7 +104,7 @@ def harris_corner_response(gray, k=0.04):
     h, w = gray.shape
     # Sobel算子
     dx = np.array([[-1,0,1],[-1,0,1],[-1,0,1]], dtype=np.float32)
-    dy = np.array([[-1,-1,-1],[0,0,0],[1,1,1]], dtype=np.float32)
+    dy = np.array([[-1,-2,-1],[0,0,0],[1,1,1]], dtype=np.float32)
     
     # 计算梯度
     Ix = np.zeros_like(gray, dtype=np.float32)
@@ -145,6 +145,9 @@ def feature_detection(image):
             r = harris_corner_response(gray, k)
             r = (r - r.min()) / (r.max() - r.min() + 1e-6)  # 归一化到0-1
             
+            # 转换为灰度图格式（修复显示）
+            r_display = (r * 255).astype(np.uint8)
+            
             # 标记角点（用圆点标记，更明显）
             harris_img = rgb.copy()
             corners = np.where(r > threshold)
@@ -155,12 +158,11 @@ def feature_detection(image):
             
             # 用红色圆点标记角点
             for y, x in zip(*corners):
-                # 画一个3x3的红点
                 harris_img[max(0,y-1):y+2, max(0,x-1):x+2] = [255, 0, 0]
             
-            # 显示响应图和结果
+            # 显示（删除错误的cmap参数）
             col1, col2 = st.columns(2)
-            col1.image(r, caption="角点响应图", use_container_width=True, cmap="gray")
+            col1.image(r_display, caption="角点响应图", use_container_width=True)
             col2.image(harris_img, caption=f"检测到{len(corners[0])}个角点（红色标记）", use_container_width=True)
     
     # 2. 简易特征点检测（修复版，基于边缘）
