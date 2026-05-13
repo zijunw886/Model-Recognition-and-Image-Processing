@@ -7,3 +7,5 @@ scipy
 torch
 torchvision
 diffusers
+torch
+torchvision
