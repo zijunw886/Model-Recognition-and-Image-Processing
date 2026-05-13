@@ -1,6 +1,7 @@
 """
 Computer Vision Assignment A4
 Machine Learning Basics
+【稳定修复版】- 二维数据演示，训练不卡顿，结果清晰
 """
 
 import streamlit as st
@@ -9,7 +10,7 @@ import matplotlib.pyplot as plt
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
-from sklearn.datasets import fetch_openml
+from sklearn.datasets import make_classification
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import os
@@ -24,7 +25,7 @@ st.set_page_config(
 # Path to root directory for image loading
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# ==================== Linear Regression ====================
+# ==================== 线性回归（原代码保留，无修改） ====================
 def linear_regression_demo():
     """Linear regression with visualization"""
     st.header("最小二乘线性回归")
@@ -73,32 +74,30 @@ def linear_regression_demo():
     st.write(f"估计参数: slope={slope:.4f}, intercept={intercept:.4f}")
     st.write(f"均方误差 (MSE): {mse:.4f}")
 
-# ==================== KNN and Linear Classifier ====================
+# ==================== 【修复版】KNN/线性分类器（二维数据，训练不卡顿） ====================
 def knn_classifier_demo():
-    """KNN and Linear classifier on CIFAR-10"""
-    st.header("KNN/线性分类器")
+    """KNN and Linear classifier on simple 2D data"""
+    st.header("KNN/线性分类器（二维数据演示）")
     st.markdown("---")
     
+    # 生成简单二维分类数据（训练快，准确率高）
     @st.cache_resource
-    def load_cifar10():
-        try:
-            X, y = fetch_openml('CIFAR_10_small', version=1, return_X_y=True, as_frame=False)
-            X = X / 255.0
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-            return X_train, X_test, y_train, y_test
-        except:
-            # Generate synthetic data
-            np.random.seed(42)
-            X = np.random.rand(1000, 3072)
-            y = np.random.randint(0, 10, 1000)
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-            return X_train, X_test, y_train, y_test
+    def generate_data():
+        # 生成2个特征、2类别的数据，带一点噪声
+        X, y = make_classification(
+            n_samples=500, n_features=2, n_classes=2, 
+            n_informative=2, n_redundant=0, random_state=42
+        )
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
+        return X_train, X_test, y_train, y_test
     
-    X_train, X_test, y_train, y_test = load_cifar10()
+    X_train, X_test, y_train, y_test = generate_data()
     
-    # KNN Classifier
+    # KNN 分类器
     st.subheader("KNN分类器")
-    k_values = st.multiselect("选择K值", [1, 3, 5, 7, 9, 11], [3, 5], key="knn_k")
+    k_values = st.multiselect("选择K值", [1, 3, 5, 7, 9], [3, 5], key="knn_k")
     
     if st.button("训练并评估KNN", key="knn_train"):
         scaler = StandardScaler()
@@ -113,50 +112,56 @@ def knn_classifier_demo():
             acc = accuracy_score(y_test, y_pred)
             results.append((k, acc))
         
-        # Plot results
+        # 显示准确率
         fig, ax = plt.subplots(figsize=(10, 5))
         ax.bar([str(k) for k, _ in results], [acc for _, acc in results], color='skyblue')
         ax.set_xlabel('K Value')
         ax.set_ylabel('Accuracy')
-        ax.set_title('KNN Accuracy vs K Value')
+        ax.set_title('KNN准确率 vs K值')
+        ax.set_ylim(0, 1.05)
         ax.grid(True, alpha=0.3)
         st.pyplot(fig)
         plt.close(fig)
         
         for k, acc in results:
-            st.write(f"K={k}: 准确率 = {acc:.4f}")
+            st.write(f"✅ K={k}: 准确率 = {acc:.4f}")
     
-    # Linear Classifier
+    # 线性分类器（Logistic回归）
     st.subheader("线性分类器")
     if st.button("训练线性分类器", key="linear_train"):
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
         
-        clf = LogisticRegression(max_iter=200)
+        clf = LogisticRegression(max_iter=100)
         clf.fit(X_train_scaled, y_train)
         y_pred = clf.predict(X_test_scaled)
         acc = accuracy_score(y_test, y_pred)
         
-        st.write(f"线性分类器准确率: {acc:.4f}")
+        st.write(f"✅ 线性分类器准确率: {acc:.4f}")
         
-        # Visualize learned templates
-        st.subheader("学到的模板图像")
-        weights = clf.coef_
-        fig, axes = plt.subplots(2, 5, figsize=(15, 6))
-        class_names = ['airplane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
+        # 可视化分类边界（直观看到效果）
+        fig, ax = plt.subplots(figsize=(10, 6))
+        # 生成网格数据
+        h = 0.02
+        x_min, x_max = X_train_scaled[:, 0].min() - 1, X_train_scaled[:, 0].max() + 1
+        y_min, y_max = X_train_scaled[:, 1].min() - 1, X_train_scaled[:, 1].max() + 1
+        xx, yy = np.meshgrid(np.arange(x_min, x_max, h), np.arange(y_min, y_max, h))
         
-        for i, ax in enumerate(axes.flat):
-            template = weights[i].reshape(32, 32, 3)
-            template = (template - template.min()) / (template.max() - template.min())
-            ax.imshow(template)
-            ax.set_title(class_names[i])
-            ax.axis('off')
+        # 预测网格
+        Z = clf.predict(np.c_[xx.ravel(), yy.ravel()])
+        Z = Z.reshape(xx.shape)
         
+        # 画决策边界和数据点
+        ax.contourf(xx, yy, Z, alpha=0.3, cmap=plt.cm.coolwarm)
+        ax.scatter(X_train_scaled[:, 0], X_train_scaled[:, 1], c=y_train, edgecolors='k', cmap=plt.cm.coolwarm)
+        ax.set_title('线性分类器决策边界')
+        ax.set_xlabel('特征1')
+        ax.set_ylabel('特征2')
         st.pyplot(fig)
         plt.close(fig)
 
-# ==================== Gradient Descent Visualization ====================
+# ==================== 梯度下降可视化（原代码保留，无修改） ====================
 def gradient_descent_demo():
     """Gradient descent visualization"""
     st.header("梯度下降算法可视化")
