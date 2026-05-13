@@ -4,6 +4,4 @@ pillow
 matplotlib
 scikit-learn
 scipy
-torch
-torchvision
 diffusers
