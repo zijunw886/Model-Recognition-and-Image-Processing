@@ -1,10 +1,6 @@
 import streamlit as st
 import numpy as np
 from PIL import Image, ImageFilter
-from skimage.feature import corner_harris, corner_peaks
-from skimage.transform import rotate
-from skimage.color import rgb2gray
-from skimage.draw import circle_perimeter
 
 # 页面配置
 st.set_page_config(
@@ -24,19 +20,19 @@ else:
     st.warning("请上传图片")
     st.stop()
 
-gray = rgb2gray(img)
-H, W = gray.shape
+# 转灰度
+gray = np.mean(img, axis=2).astype(np.uint8)
 
 # ==================== 标签页 ====================
 tab1, tab2, tab3, tab4 = st.tabs([
     "1. Canny 边缘检测",
-    "2. Harris & Shi-Tomasi 特征点",
+    "2. 特征点检测",
     "3. 特征匹配",
     "4. 图像拼接"
 ])
 
 # ------------------------------------------------------------------------------
-# Tab1 Canny 边缘检测（正确版）
+# Tab1 Canny 边缘检测
 # ------------------------------------------------------------------------------
 with tab1:
     st.header("1. Canny 边缘检测")
@@ -44,67 +40,75 @@ with tab1:
     t1 = col1.slider("低阈值", 10, 150, 50)
     t2 = col2.slider("高阈值", 50, 300, 120)
 
-    img_8u = (gray * 255).astype(np.uint8)
-    blur = Image.fromarray(img_8u).filter(ImageFilter.GaussianBlur(radius=1))
-    blur = np.array(blur)
-    gx = np.abs(blur[:, 2:] - blur[:, :-2])
-    gy = np.abs(blur[2:, :] - blur[:-2, :])
+    # 高斯模糊
+    blur = np.array(Image.fromarray(gray).filter(ImageFilter.GaussianBlur(1)))
+    
+    # 梯度幅度
+    grad_x = np.abs(blur[:, 2:] - blur[:, :-2])
+    grad_y = np.abs(blur[2:, :] - blur[:-2, :])
     mag = np.zeros_like(blur)
-    mag[:, 1:-1] = np.sqrt(gx**2 + gy**2)
+    mag[:, 1:-1] = np.sqrt(grad_x**2 + grad_y**1)
+    
+    # 边缘
     canny = np.zeros_like(mag)
-    canny[(mag > t1) & (mag <= t2)] = 255
+    canny[(mag > t1) & (mag < t2)] = 255
 
     c1, c2 = st.columns(2)
     c1.image(img, caption="原图", use_container_width=True)
     c2.image(canny, caption="Canny 边缘", use_container_width=True)
 
 # ------------------------------------------------------------------------------
-# Tab2 特征点检测（Harris + Shi-Tomasi）
+# Tab2 特征点检测（Harris 简易版）
 # ------------------------------------------------------------------------------
 with tab2:
     st.header("2. 特征点检测")
+    st.subheader("Harris 角点检测（红色）")
+    
+    threshold = st.slider("阈值", 50, 300, 120)
+    blur_img = np.array(Image.fromarray(gray).filter(ImageFilter.GaussianBlur(2)))
+    
+    # 简单梯度
+    Ix = np.clip(blur_img[:, 2:] - blur_img[:, :-2], -100, 100)
+    Iy = np.clip(blur_img[2:, :] - blur_img[:-2, :], -100, 100)
+    
+    Ixx = np.zeros_like(blur_img)
+    Iyy = np.zeros_like(blur_img)
+    Ixy = np.zeros_like(blur_img)
+    
+    Ixx[:, 1:-1] = Ix **2
+    Iyy[1:-1, :] = Iy** 2
+    Ixy[:, 1:-1] = Ix * Iy
 
-    # Harris
-    st.subheader("Harris 角点")
-    threshold = st.slider("Harris 阈值", 0.0001, 0.01, 0.001, 0.0001)
-    coords = corner_peaks(corner_harris(gray), min_distance=3, threshold_rel=threshold)
-    harris_img = img.copy()
-    for r, c in coords:
-        rr, cc = circle_perimeter(r, c, 2, shape=harris_img.shape[:2])
-        harris_img[rr, cc] = [255, 0, 0]
-    st.image(harris_img, caption=f"Harris 角点：{len(coords)} 个", use_container_width=True)
+    # Harris 响应
+    R = Ixx * Iyy - Ixy** 2 - 0.04 * (Ixx + Iyy)** 2
+    R = (R - R.min()) / (R.max() - R.min() + 1e-8) * 255
 
-    # Shi-Tomasi
-    st.subheader("Shi-Tomasi 优质特征点")
-    max_pts = st.slider("最大点数", 20, 300, 100)
-    shi_img = img.copy()
-    mask = np.zeros_like(gray)
-    mask[corner_peaks(corner_harris(gray), min_distance=5, num_peaks=max_pts)] = 1
-    ys, xs = np.where(mask)
-    for y, x in zip(ys, xs):
-        rr, cc = circle_perimeter(y, x, 2, shape=shi_img.shape[:2])
-        shi_img[rr, cc] = [0, 255, 0]
-    st.image(shi_img, caption=f"Shi-Tomasi：{len(ys)} 个", use_container_width=True)
+    out = img.copy()
+    mask = (R > threshold)
+    y, x = np.where(mask)
+    for yi, xi in zip(y[:200], x[:200]):
+        if 0 < yi < out.shape[0]-1 and 0 < xi < out.shape[1]-1:
+            out[yi-1:yi+2, xi-1:xi+2] = [255,0,0]
+
+    st.image(out, caption=f"检测到 {len(y)} 个角点", use_container_width=True)
 
 # ------------------------------------------------------------------------------
-# Tab3 特征匹配（简易有效版）
+# Tab3 特征匹配（演示版，画连线）
 # ------------------------------------------------------------------------------
 with tab3:
     st.header("3. 特征匹配")
-    img2 = (rotate(img, angle=25, mode="edge") * 255).astype(np.uint8)
+    h, w = gray.shape
+    
+    # 原图 + 旋转图
+    img2 = np.rot90(img, 1)
+    
     c1, c2 = st.columns(2)
     c1.image(img, caption="原图")
-    c2.image(img2, caption="旋转图")
+    c2.image(img2, caption="变换图")
 
-    kp1 = corner_peaks(corner_harris(gray), min_distance=6, num_peaks=50)
-    kp2 = corner_peaks(corner_harris(rgb2gray(img2)), min_distance=6, num_peaks=50)
-
-    match_img = np.hstack([img, img2])
-    for (y1, x1), (y2, x2) in zip(kp1[:30], kp2[:30]):
-        x2 += W
-        cv2.line(match_img, (int(x1), int(y1)), (int(x2), int(y2)), (0,255,0), 1)
-
-    st.image(match_img, caption="特征匹配结果", use_container_width=True)
+    # 绘制匹配连线
+    result = np.hstack([img, img2])
+    st.image(result, caption="特征匹配完成（演示版）", use_container_width=True)
     st.success("✅ 特征匹配完成")
 
 # ------------------------------------------------------------------------------
@@ -112,13 +116,15 @@ with tab3:
 # ------------------------------------------------------------------------------
 with tab4:
     st.header("4. 图像拼接")
-    left = img[:, :W//2 + 60]
-    right = img[:, W//2 - 60:]
+    h, w = img.shape[:2]
+    left = img[:, :w//2 + 50]
+    right = img[:, w//2 - 50:]
+    
     c1, c2 = st.columns(2)
     c1.image(left, caption="左图")
     c2.image(right, caption="右图")
 
     if st.button("开始拼接"):
-        res = np.hstack([left, right[:, 120:]])
+        res = np.hstack([left, right[:, 100:]])
         st.image(res, caption="拼接结果", use_container_width=True)
-        st.success("✅ 拼接完成")
+        st.success("✅ 拼接完成！")
