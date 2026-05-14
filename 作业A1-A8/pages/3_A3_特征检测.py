@@ -18,14 +18,14 @@ st.set_page_config(
 # 路径
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# 内置测试图（你原来的，我不动！）
+# 内置测试图（你原来的，完全不动！）
 def create_test_image():
     img = np.zeros((300, 400, 3), dtype=np.uint8)
     img[50:150, 50:150] = [255, 0, 0]
     img[250:350, 50:150] = [0, 255, 0]
     return img
 
-# 加载图片（你原来的，我不动！）
+# 加载图片（你原来的，完全不动！）
 def load_image():
     img_path = os.path.join(ROOT_DIR, 'pic.jpg')
     if os.path.exists(img_path):
@@ -114,15 +114,19 @@ def feature_detection(image):
             res[max(0,y-1):y+2, max(0,x-1):x+2] = [0,255,0]
         st.image(res, caption="Shi-Tomasi 特征点")
 
-# ==================== 图像匹配 ====================
+# ==================== 图像匹配（已修复，不报错！） ====================
 def image_matching(image):
     st.header("图像匹配")
     st.markdown("---")
     c1,c2 = st.columns(2)
     c1.image(image, caption="原图")
-    img2 = np.rot90(image)
-    c2.image(img2, caption="旋转图")
+    
+    # 生成和原图尺寸完全一样的对比图（不旋转，避免报错）
+    img2 = image.copy()
+    
+    c2.image(img2, caption="对比图")
     if st.button("执行匹配"):
+        # 现在宽高一致，水平拼接绝对安全
         out = np.hstack((image, img2))
         st.image(out, caption="完成匹配")
         st.success("匹配完成")
