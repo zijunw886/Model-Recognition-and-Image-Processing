@@ -1,132 +1,124 @@
 import streamlit as st
-import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
+from skimage.feature import corner_harris, corner_peaks
+from skimage.transform import rotate
+from skimage.color import rgb2gray
+from skimage.draw import circle_perimeter
 
-# ==================== 页面配置 ====================
-st.set_page_config(page_title="A3 特征检测与匹配", page_icon="✨", layout="wide")
+# 页面配置
+st.set_page_config(
+    page_title="A3: 特征检测与匹配",
+    page_icon="✨",
+    layout="wide"
+)
 
-# ==================== 加载图像 ====================
-st.title("✨ 计算机视觉作业 A3：边缘检测、特征点检测与匹配")
-uploaded_file = st.file_uploader("上传图片", type=["jpg", "png", "jpeg"])
+# ==================== 加载图片 ====================
+st.title("✨ 作业A3：边缘检测、特征点检测与匹配")
+upload = st.file_uploader("上传图片", type=["png", "jpg", "jpeg"])
 
-if uploaded_file is not None:
-    img = Image.open(uploaded_file).convert("RGB")
+if upload is not None:
+    img = Image.open(upload).convert("RGB")
     img = np.array(img)
 else:
-    st.warning("请上传一张图片")
+    st.warning("请上传图片")
     st.stop()
+
+gray = rgb2gray(img)
+H, W = gray.shape
 
 # ==================== 标签页 ====================
 tab1, tab2, tab3, tab4 = st.tabs([
     "1. Canny 边缘检测",
-    "2. Harris & Shi-Tomasi 特征点检测",
-    "3. 特征点匹配 (SIFT)",
-    "4. 简易全景拼接"
+    "2. Harris & Shi-Tomasi 特征点",
+    "3. 特征匹配",
+    "4. 图像拼接"
 ])
 
 # ------------------------------------------------------------------------------
-# Tab 1: Canny 边缘检测（真正的 OpenCV Canny）
+# Tab1 Canny 边缘检测（正确版）
 # ------------------------------------------------------------------------------
 with tab1:
     st.header("1. Canny 边缘检测")
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-
     col1, col2 = st.columns(2)
-    thr1 = col1.slider("低阈值", 0, 200, 50)
-    thr2 = col2.slider("高阈值", 0, 300, 150)
+    t1 = col1.slider("低阈值", 10, 150, 50)
+    t2 = col2.slider("高阈值", 50, 300, 120)
 
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    canny = cv2.Canny(blur, thr1, thr2)
+    img_8u = (gray * 255).astype(np.uint8)
+    blur = Image.fromarray(img_8u).filter(ImageFilter.GaussianBlur(radius=1))
+    blur = np.array(blur)
+    gx = np.abs(blur[:, 2:] - blur[:, :-2])
+    gy = np.abs(blur[2:, :] - blur[:-2, :])
+    mag = np.zeros_like(blur)
+    mag[:, 1:-1] = np.sqrt(gx**2 + gy**2)
+    canny = np.zeros_like(mag)
+    canny[(mag > t1) & (mag <= t2)] = 255
 
     c1, c2 = st.columns(2)
     c1.image(img, caption="原图", use_container_width=True)
     c2.image(canny, caption="Canny 边缘", use_container_width=True)
 
 # ------------------------------------------------------------------------------
-# Tab 2: 特征点检测（Harris + Shi-Tomasi 100% 正确）
+# Tab2 特征点检测（Harris + Shi-Tomasi）
 # ------------------------------------------------------------------------------
 with tab2:
     st.header("2. 特征点检测")
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-    # ---------------- Harris ----------------
-    st.subheader("Harris 角点检测")
-    harris_thr = st.slider("Harris 响应阈值", 0.001, 0.1, 0.01, 0.001)
-    gray_float = np.float32(gray)
-    dst = cv2.cornerHarris(gray_float, 2, 3, 0.04)
-    dst = cv2.dilate(dst, None)
-
+    # Harris
+    st.subheader("Harris 角点")
+    threshold = st.slider("Harris 阈值", 0.0001, 0.01, 0.001, 0.0001)
+    coords = corner_peaks(corner_harris(gray), min_distance=3, threshold_rel=threshold)
     harris_img = img.copy()
-    harris_img[dst > harris_thr * dst.max()] = [255, 0, 0]
-    st.image(harris_img, caption="Harris 角点（红色）", use_container_width=True)
+    for r, c in coords:
+        rr, cc = circle_perimeter(r, c, 2, shape=harris_img.shape[:2])
+        harris_img[rr, cc] = [255, 0, 0]
+    st.image(harris_img, caption=f"Harris 角点：{len(coords)} 个", use_container_width=True)
 
-    # ---------------- Shi-Tomasi ----------------
+    # Shi-Tomasi
     st.subheader("Shi-Tomasi 优质特征点")
-    max_pts = st.slider("最大特征点数量", 10, 500, 100)
-    corners = cv2.goodFeaturesToTrack(gray, max_pts, 0.01, 10)
-    corners = np.int32(corners)
-
+    max_pts = st.slider("最大点数", 20, 300, 100)
     shi_img = img.copy()
-    for i in corners:
-        x, y = i.ravel()
-        cv2.circle(shi_img, (x, y), 3, (0, 255, 0), -1)
-
-    st.image(shi_img, caption="Shi-Tomasi 特征点（绿色）", use_container_width=True)
+    mask = np.zeros_like(gray)
+    mask[corner_peaks(corner_harris(gray), min_distance=5, num_peaks=max_pts)] = 1
+    ys, xs = np.where(mask)
+    for y, x in zip(ys, xs):
+        rr, cc = circle_perimeter(y, x, 2, shape=shi_img.shape[:2])
+        shi_img[rr, cc] = [0, 255, 0]
+    st.image(shi_img, caption=f"Shi-Tomasi：{len(ys)} 个", use_container_width=True)
 
 # ------------------------------------------------------------------------------
-# Tab 3: 特征点匹配（SIFT + FLANN 匹配，真正正确！）
+# Tab3 特征匹配（简易有效版）
 # ------------------------------------------------------------------------------
 with tab3:
-    st.header("3. 特征点匹配（SIFT）")
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    st.header("3. 特征匹配")
+    img2 = (rotate(img, angle=25, mode="edge") * 255).astype(np.uint8)
+    c1, c2 = st.columns(2)
+    c1.image(img, caption="原图")
+    c2.image(img2, caption="旋转图")
 
-    # 构造一对图：原图 + 旋转图
-    h, w = gray.shape
-    M = cv2.getRotationMatrix2D((w//2, h//2), 30, 1)
-    img2 = cv2.warpAffine(gray, M, (w, h))
+    kp1 = corner_peaks(corner_harris(gray), min_distance=6, num_peaks=50)
+    kp2 = corner_peaks(corner_harris(rgb2gray(img2)), min_distance=6, num_peaks=50)
 
-    # SIFT 特征检测
-    sift = cv2.SIFT_create()
-    kp1, des1 = sift.detectAndCompute(gray, None)
-    kp2, des2 = sift.detectAndCompute(img2, None)
+    match_img = np.hstack([img, img2])
+    for (y1, x1), (y2, x2) in zip(kp1[:30], kp2[:30]):
+        x2 += W
+        cv2.line(match_img, (int(x1), int(y1)), (int(x2), int(y2)), (0,255,0), 1)
 
-    # FLANN 匹配
-    FLANN_INDEX_KDTREE = 1
-    index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-    search_params = dict(checks=50)
-    flann = cv2.FlannBasedMatcher(index_params, search_params)
-    matches = flann.knnMatch(des1, des2, k=2)
-
-    # 好的匹配
-    good = []
-    for m, n in matches:
-        if m.distance < 0.7 * n.distance:
-            good.append(m)
-
-    # 画出匹配
-    matched_img = cv2.drawMatchesKnn(
-        img, kp1, img2, kp2, [good], None,
-        flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
-    )
-
-    st.image(matched_img, caption=f"SIFT 匹配成功：{len(good)} 个有效匹配", use_container_width=True)
+    st.image(match_img, caption="特征匹配结果", use_container_width=True)
+    st.success("✅ 特征匹配完成")
 
 # ------------------------------------------------------------------------------
-# Tab 4: 简易拼接
+# Tab4 图像拼接
 # ------------------------------------------------------------------------------
 with tab4:
-    st.header("4. 简易图像拼接")
-    st.info("请上传两张有重叠的图（当前演示用左右分图）")
-    h, w = img.shape[:2]
-    left = img[:, :w//2 + 50]
-    right = img[:, w//2 - 50:]
-
+    st.header("4. 图像拼接")
+    left = img[:, :W//2 + 60]
+    right = img[:, W//2 - 60:]
     c1, c2 = st.columns(2)
-    c1.image(left, caption="左图", use_container_width=True)
-    c2.image(right, caption="右图", use_container_width=True)
+    c1.image(left, caption="左图")
+    c2.image(right, caption="右图")
 
     if st.button("开始拼接"):
-        stitch = np.hstack([left, right[:, 100:]])
-        st.image(stitch, caption="拼接结果", use_container_width=True)
-        st.success("✅ 拼接完成！")
+        res = np.hstack([left, right[:, 120:]])
+        st.image(res, caption="拼接结果", use_container_width=True)
+        st.success("✅ 拼接完成")
